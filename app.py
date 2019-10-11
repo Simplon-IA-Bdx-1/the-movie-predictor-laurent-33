@@ -1,3 +1,8 @@
+"""
+app.py by laurent
+"""
+
+
 print("zedz")
 #import sqlalchemy
 #print(sqlalchemy.__version__)
@@ -134,5 +139,4 @@ if args.context == "movies":
     for movie in results:
       print("")
       print(movie)
-
 
