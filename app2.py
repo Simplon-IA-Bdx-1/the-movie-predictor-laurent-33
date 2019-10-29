@@ -9,6 +9,69 @@ print("zedz")
 #engine = sqlalchemy.create_engine('mysql://predictor:predictor@localhost:3306/database/predictor', echo=True)
 
 import mysql.connector
+import argparse
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
+import locale
+
+locale.setlocale(locale.LC_ALL, locale='fr_FR')
+
+r = requests.get("https://fr.wikipedia.org/wiki/Joker_(film,_2019)")
+soup = BeautifulSoup(r.text, 'html.parser')
+
+# récupérer élément html dont id = fiche technique
+fiche = soup.find(id="Fiche_technique")
+
+# remonter un niveau (parent) pour obtenir l'élément h2 (heading de niveau 2)
+h2_tag = fiche.parent
+
+# récupérer le sibling (frère) suivant ul (unordered list)
+ul_tag = h2_tag.find_next_sibling("ul")
+
+# récupérer les enfants li (list item)
+li_tags = ul_tag.find_all("li", recursive=False)
+
+# récupérer soit l'élément i (italic) ou a (normal)
+
+for li_tag in li_tags:
+
+    li_split = li_tag.text.split(sep=":")
+    data_type = li_split[0].strip()
+    data_value = li_split[1].strip()
+
+    if data_type == "Titre original":
+        title = data_value
+        
+    if data_type == "Durée":
+        duration = data_value.replace("minutes", "").strip()
+        
+    if data_type == "Dates de sortie":
+        release_dates_list = li_tag.find_all("li")
+        for release_date_li in release_dates_list:
+            release_date_splitted = release_date_li.text.split(sep=":")
+            release_country = release_date_splitted[0].strip()
+            release_date_as_string = release_date_splitted[1].strip() # 9 octobre 2019
+            if release_country == "France":
+                release_date_object = datetime.strptime(release_date_as_string, '%d %B %Y')
+                release_date = datetime.strftime(release_date_object, '%Y-%m-%d')
+                
+    if data_type == "Classification":
+        ratings_list = li_tag.find_all("li")
+        for rating_li in ratings_list:
+            rating_splitted = rating_li.text.split(sep=":")
+            rating_country = rating_splitted[0].strip()
+            rating_string = rating_splitted[1].strip() # Interdit aux moins de 12 ans avec avertissement
+            if rating_country == "France":
+                if rating_string.find("12") != -1:
+                    rating = '-12'
+
+print(title)
+print(duration)
+print(release_date)
+print(rating)
+
+exit()
 
 # insérer un people dans database
 """
@@ -52,7 +115,6 @@ cnx.close()
 # for arg in sys.argv:
 #   print(arg)
 
-import argparse
 parser = argparse.ArgumentParser(description='Process Movies Predictor data')
 parser.add_argument('context', choices=['people', 'movies'], help='La table concernée, people ou movies')
 
@@ -216,6 +278,13 @@ if args.context == "movies":
         results = findall("movies")
         for movie in results:
             printMovie(movie)
+        
+        if args.export:
+            with open(args.export, 'w', newline='\n', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(results[0]._fields)
+                for movie in results:
+                    writer.writerow(movie)
 
     if args.action == "insert":
         results = insertMovie(
