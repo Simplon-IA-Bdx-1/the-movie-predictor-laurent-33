@@ -15,7 +15,7 @@ from isodate import parse_duration
 from entities.movie import Movie
 from entities.person import Person
 from entities.scrapper import Scrapper
-from entities.themoviedb import import_themoviedb, parse_themoviedb
+from entities import themoviedb
 
 
 def connect_to_database():
@@ -251,6 +251,17 @@ def scrap_movie(movie_url):
     print(results)
 
 
+def import_current_movies():
+    movies_id_list = themoviedb.movies_in_theatre()
+    ids = []
+    for movie_id in movies_id_list:
+        movie = themoviedb.collect_from__themoviedb(movie_id)
+        new_id = insert_movie(movie)
+        ids += [new_id]
+
+    return ids
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Process Movies Predictor data')
@@ -430,10 +441,7 @@ def main():
         print('Mode import')
         if args.api == 'themoviedb':
             print('Mode themoviedb')
-            result = import_themoviedb(args.imdbid).json()
-            print(result)
-            print()
-            new_movie = parse_themoviedb(result, args.imdbid)
+            movie = themoviedb.collect_from__themoviedb(args.imdbid)
             results = insert_movie(new_movie)
             print(results)
             print()
