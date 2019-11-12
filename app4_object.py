@@ -8,10 +8,6 @@ app.py by laurent
 #print(sqlalchemy.__version__)
 #engine = sqlalchemy.create_engine('mysql://predictor:predictor@localhost:3306/database/predictor', echo=True)
 
-from entities.movie import Movie
-from entities.people import People
-from entities.scrapper import Scrapper
-
 import mysql.connector
 import argparse
 import csv
@@ -23,6 +19,10 @@ from isodate import parse_duration
 #import sys
 # for arg in sys.argv:
 #   print(arg)
+
+from entities.movie import Movie
+from entities.person import Person
+from entities.scrapper import Scrapper
 
 parser = argparse.ArgumentParser(description='Process Movies Predictor data')
 parser.add_argument('context', choices=['people', 'movies'], help='La table concernée, people ou movies')
@@ -114,31 +114,31 @@ cursor.close()
 cnx.close()
 """
 
-def connectToDatabase():
+def connect_to_database():
     return mysql.connector.connect(user='predictor', password='predictor',
                                                             host='127.0.0.1',
                                                             database='predictor')
 
-def createCursor(cnx):
+def create_cursor(cnx):
     return cnx.cursor(named_tuple=True)
 
-def disconnectDatabase(cnx, cursor):
+def disconnect_to_database(cnx, cursor):
     cursor.close()
     cnx.close()
 
-def findQuery(table, id):
+def find_query(table, id):
     return f"SELECT * FROM {table} WHERE id={id} LIMIT 1"
 
 def find(table, id):
-    cnx = connectToDatabase()
-    cursor = createCursor(cnx)
+    cnx = connect_to_database()
+    cursor = create_cursor(cnx)
 
-    query = findQuery(table, id)
+    query = find_query(table, id)
     cursor.execute(query)
     result = cursor.fetchall()
 
+    entity = None
     if cursor.rowcount == 1:
-        disconnectDatabase(cnx, cursor)
         if table == "movies":
             entity = Movie(
                     title = result[0].title,
@@ -147,25 +147,25 @@ def find(table, id):
                     release_date = result[0].release_date,
                     rating = result[0].rating
                 )
-            entity.id = result[0].id
 
         if table == "people":
-            entity = People(firstname = result[0].firstname, lastname = result[0].lastname)
-            entity.id = result[0].id
+            entity = Person(firstname = result[0].firstname, lastname = result[0].lastname)
 
-        return entity
+        entity.id = result[0].id
     
-    return None
+    disconnect_to_database(cnx, cursor)
+    return entity
 
 def findall(table):
-    cnx = connectToDatabase()
-    cursor = createCursor(cnx)
+    cnx = connect_to_database()
+    cursor = create_cursor(cnx)
     cursor.execute(f"SELECT * FROM {table}")
     results = cursor.fetchall()
-    disconnectDatabase(cnx, cursor)
+    disconnect_to_database(cnx, cursor)
 
-    entities = []
+    entities = None
     if table == "movies":
+        entities = []
         for result in results:
             entity = Movie(
                 title = result.title,
@@ -176,47 +176,44 @@ def findall(table):
             )
             entity.id = result.id
             entities += [entity]
-        
-        return entities
     
     if table == "people":
+        entities = []
         for result in results:
-            entity = People(firstname = result.firstname, lastname = result.lastname)
+            entity = Person(firstname = result.firstname, lastname = result.lastname)
             entity.id = result.id
             entities += [entity]
-        
-        return entities
 
-    return None
+    return entities
 
-def insertPeople(people):
-    cnx = connectToDatabase()
-    cursor = createCursor(cnx)
-    query = f"INSERT INTO `people` (`firstname`, `lastname`) VALUES ('{people.firstname}', '{people.lastname}')"
+def insert_people(person):
+    cnx = connect_to_database()
+    cursor = create_cursor(cnx)
+    query = f"INSERT INTO `people` (`firstname`, `lastname`) VALUES ('{person.firstname}', '{person.lastname}')"
     cursor.execute(query)
     lastId = cursor.lastrowid
     cnx.commit()
-    disconnectDatabase(cnx, cursor)
+    disconnect_to_database(cnx, cursor)
     return lastId
 
-def insertMovie(movie):
-    cnx = connectToDatabase()
-    cursor = createCursor(cnx)
+def insert_movie(movie):
+    cnx = connect_to_database()
+    cursor = create_cursor(cnx)
     query = "INSERT INTO `movies` (`title`,`duration`,`original_title`,`release_date`,`rating`) VALUES (%s, %s, %s, %s, %s)"
     data = (movie.title, movie.duration, movie.original_title, movie.release_date, movie.rating)
     cursor.execute(query, data)
     lastId = cursor.lastrowid
     cnx.commit()
-    disconnectDatabase(cnx, cursor)
+    disconnect_to_database(cnx, cursor)
     return lastId
 
-def printPerson(person):
+def print_person(person):
     print(f"#{person.id}: {person.firstname} {person.lastname}")
 
-def printMovie(movie):
+def print_movie(movie):
     print(f"#{movie.id}: {movie.title} released on {movie.release_date}")
 
-def scrapMovie(movie_url):
+def scrap_movie(movie_url):
     locale.setlocale(locale.LC_ALL, locale='en_US')
 
     # https://www.imdb.com/title/tt7016254
@@ -274,7 +271,7 @@ if args.context == "people":
         if person == None:
             print("Cet id n'a pas été trouvé")
         else:
-            printPerson(person)
+            print_person(person)
 
     if args.action == "list":
         results = findall("people")
@@ -288,11 +285,11 @@ if args.context == "people":
 
         else:
             for person in results:
-                printPerson(person)
+                print_person(person)
 
     if args.action == "insert":
-        person = People(firstname=args.firstname, lastname=args.lastname)
-        results = insertPeople(person)
+        person = Person(firstname=args.firstname, lastname=args.lastname)
+        results = insert_people(person)
         print(results)
 
 if args.context == "movies":
@@ -304,12 +301,12 @@ if args.context == "movies":
         if movie == None:
             print("Cet id n'a pas été trouvé")
         else:
-            printMovie(movie)
+            print_movie(movie)
 
     if args.action == "list":
         results = findall("movies")
         for movie in results:
-            printMovie(movie)
+            print_movie(movie)
         
         if args.export:
             with open(args.export, 'w', newline='\n', encoding='utf-8') as csvfile:
@@ -327,7 +324,7 @@ if args.context == "movies":
             rating = args.rating
         )
 
-        results = insertMovie(new_movie)
+        results = insert_movie(new_movie)
         print(results)
 
     if args.action == "import":
@@ -346,8 +343,8 @@ if args.context == "movies":
                         rating = row['rating']
                     )
 
-                    results = insertMovie(new_movie)
+                    results = insert_movie(new_movie)
                     print(results)
 
     if args.action == "scrap":
-        scrapMovie(args.url)
+        scrap_movie(args.url)

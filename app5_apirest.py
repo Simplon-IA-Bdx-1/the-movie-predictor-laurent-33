@@ -17,86 +17,6 @@ from entities.person import Person
 from entities.scrapper import Scrapper
 from entities.themoviedb import import_themoviedb, parse_themoviedb
 
-parser = argparse.ArgumentParser(description='Process Movies Predictor data')
-parser.add_argument(
-    'context',
-    choices=['people', 'movies', 'import'],
-    help='La table concernée, people ou movies'
-    )
-
-known_args = parser.parse_known_args()[0]
-
-if known_args.context == "import":
-    parser.add_argument('--api', help='source api')
-    parser.add_argument('--imdbid', help='the id of movie')
-
-else:
-    fullaction = parser.add_subparsers(dest='action', help='fullaction')
-
-    parser_find = fullaction.add_parser('find')
-    parser_find.add_argument('id', type=int)
-
-    parser_list = fullaction.add_parser('list')
-    parser_list.add_argument('--export', type=str)
-
-    import_parser = fullaction.add_parser(
-        'import', help='Add data from csv file')
-    import_parser.add_argument('--file', help='File with data')
-
-    parser_scrapp = fullaction.add_parser('scrap')
-    parser_scrapp.add_argument('--url', type=str)
-
-    insert_parser = fullaction.add_parser('insert', help='Add data in tables')
-
-    if known_args.context == "people":
-        insert_parser.add_argument(
-            '--firstname',
-            help='Person first name',
-            required=True)
-        insert_parser.add_argument(
-            '--lastname',
-            help='Person last name',
-            required=True)
-
-    if known_args.context == "movies":
-        insert_parser.add_argument(
-            '--imdb_id', help='Movie imdb id', required=True)
-        insert_parser.add_argument(
-            '--original-title', help='Movie original title', required=True)
-        insert_parser.add_argument(
-            '--title', default=None, help='Movie title')
-        insert_parser.add_argument(
-            '--duration', default=None, help='Movie duration')
-        insert_parser.add_argument(
-            '--origin-country', default=None, help='Movie origin country')
-        insert_parser.add_argument(
-            '--release-date', default=None, help='Movie release date')
-        insert_parser.add_argument(
-            '--rating', default=None, help='Movie rating')
-
-args = parser.parse_args()
-# print(args)
-
-"""
-Args example:
-$ python app.py movies find 1
-$ python app.py people list
-$ python app.py people list --export "listing.csv"
-
-$ python app.py people insert --firstname "John" --lastname "Doe"
-$ python app.py movies insert
---title "Star Wars, épisode VIII : Les Derniers Jedi"--duration 152
-    --original-title "Star Wars: Episode VIII – The Last Jedi"
-    --origin-country US
-    --release-date
-
-$ python app.py movies import --file new_movies.csv
-$ python app.py movies scrap --url https://www.imdb.com/title/tt2527338/
-
-$ python app.py import --api omdb --imdbid tt7016254
-$ python app.py import --api themoviedb --imdbid tt7016254
-"""
-
 
 def connect_to_database():
     return mysql.connector.connect(
@@ -182,6 +102,36 @@ def findall(table):
     return entities
 
 
+def find_imdbid(imdb_id, cnx=None, cursor=None):
+    to_close = False
+    if cnx is None:
+        cnx = connect_to_database()
+        cursor = create_cursor(cnx)
+        to_close = True
+
+    query = ("SELECT * FROM `movies` WHERE `imdb_id`=%(imdbid)s")
+    data = {'imdbid': imdb_id}
+    cursor.execute(query, params=data)
+    result = cursor.fetchall()
+
+    if cursor.rowcount == 1:
+        result = Movie(
+                    imdb_id=result[0].imdb_id,
+                    original_title=result[0].original_title,
+                    title=result[0].title,
+                    duration=result[0].duration,
+                    release_date=result[0].release_date,
+                    rating=result[0].rating
+                )
+    else:
+        result = None
+
+    if to_close:
+        disconnect_to_database(cnx, cursor)
+
+    return result
+
+
 def insert_people(person):
     cnx = connect_to_database()
     cursor = create_cursor(cnx)
@@ -197,33 +147,43 @@ def insert_people(person):
 def insert_movie(movie):
     cnx = connect_to_database()
     cursor = create_cursor(cnx)
-    query = ("INSERT INTO `movies` (`imdb_id`, `original_title`, `title`,"
-             "`duration`, `release_date`, `rating`, `is3d`,"
-             "`production_budget`, `marketing_budget`,"
-             "`synopsis`, `review`)"
-             "VALUES (%(imdb_id)s, %(original_title)s, %(title)s,"
-             "%(duration)s, %(release_date)s, %(rating)s, %(is3d)s,"
-             "%(production_budget)s, %(marketing_budget)s,"
-             "%(synopsis)s, %(review)s)"
-             )
-    data = {
-        'imdb_id': movie.imdb_id,
-        'original_title': movie.original_title,
-        'title': movie.title,
-        'duration': movie.duration,
-        'release_date': movie.release_date,
-        'rating': movie.rating,
-        'is3d': movie.is3d,
-        'production_budget': movie.production_budget,
-        'marketing_budget': movie.marketing_budget,
-        'synopsis': movie.synopsis,
-        'review': movie.review
-    }
 
-    cursor.execute(query, params=data)
-    lastId = cursor.lastrowid
-    cnx.commit()
+    imdb_check = find_imdbid(movie.imdb_id, cnx, cursor)
+
+    if imdb_check is not None:
+        lastId = None
+
+    else:
+
+        query = ("INSERT INTO `movies` (`imdb_id`, `original_title`, `title`,"
+                 "`duration`, `release_date`, `rating`, `is3d`,"
+                 "`production_budget`, `marketing_budget`,"
+                 "`synopsis`, `review`)"
+                 "VALUES (%(imdb_id)s, %(original_title)s, %(title)s,"
+                 "%(duration)s, %(release_date)s, %(rating)s, %(is3d)s,"
+                 "%(production_budget)s, %(marketing_budget)s,"
+                 "%(synopsis)s, %(review)s)"
+                 )
+        data = {
+            'imdb_id': movie.imdb_id,
+            'original_title': movie.original_title,
+            'title': movie.title,
+            'duration': movie.duration,
+            'release_date': movie.release_date,
+            'rating': movie.rating,
+            'is3d': movie.is3d,
+            'production_budget': movie.production_budget,
+            'marketing_budget': movie.marketing_budget,
+            'synopsis': movie.synopsis,
+            'review': movie.review
+        }
+
+        cursor.execute(query, params=data)
+        lastId = cursor.lastrowid
+        cnx.commit()
+
     disconnect_to_database(cnx, cursor)
+
     return lastId
 
 
@@ -291,106 +251,193 @@ def scrap_movie(movie_url):
     print(results)
 
 
-# Utiliser arguments pour afficher des inputs
-if args.context == "people":
-    print("Mode People")
-
-    if args.action == "find":
-        peopleId = args.id
-        person = find("people", peopleId)
-        if person is None:
-            print("Cet id n'a pas été trouvé")
-        else:
-            print_person(person)
-
-    if args.action == "list":
-        results = findall("people")
-
-        if args.export:
-            with open(args.export, 'w', newline='\n', encoding='utf-8') \
-                    as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['id', 'firstname', 'lastname'])
-                for person in results:
-                    writer.writerow(
-                        [person.id, person.firstname, person.lastname]
-                        )
-
-        else:
-            for person in results:
-                print_person(person)
-
-    if args.action == "insert":
-        person = Person(firstname=args.firstname, lastname=args.lastname)
-        results = insert_people(person)
-        print(results)
-
-if args.context == "movies":
-    print("Mode Movies")
-
-    if args.action == "find":
-        movieId = args.id
-        movie = find("movies", movieId)
-        if movie is None:
-            print("Cet id n'a pas été trouvé")
-        else:
-            print_movie(movie)
-
-    if args.action == "list":
-        results = findall("movies")
-        for movie in results:
-            print_movie(movie)
-
-        if args.export:
-            with open(args.export, 'w', newline='\n', encoding='utf-8')\
-                    as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(results[0]._fields)
-                for movie in results:
-                    writer.writerow(movie)
-
-    if args.action == "insert":
-        new_movie = Movie(
-            title=args.title,
-            duration=args.duration,
-            original_title=args.original_title,
-            release_date=args.release_date,
-            rating=args.rating
+def main():
+    parser = argparse.ArgumentParser(
+        description='Process Movies Predictor data')
+    parser.add_argument(
+        'context',
+        choices=['people', 'movies', 'import'],
+        help='La table concernée, people ou movies'
         )
 
-        results = insert_movie(new_movie)
-        print(results)
+    known_args = parser.parse_known_args()[0]
 
-    if args.action == "import":
-        with open(args.file, 'r', encoding='utf-8', newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                if reader.line_num == 1:
-                    features_names = row
+    if known_args.context == "import":
+        parser.add_argument('--api', help='source api')
+        parser.add_argument('--imdbid', help='the id of movie')
 
-                else:
-                    new_movie = Movie(
-                        title=row['title'],
-                        duration=row['duration'],
-                        original_title=row['original_title'],
-                        release_date=row['release_date'],
-                        rating=row['rating']
-                    )
+    else:
+        fullaction = parser.add_subparsers(dest='action', help='fullaction')
 
-                    results = insert_movie(new_movie)
-                    print(results)
+        parser_find = fullaction.add_parser('find')
+        parser_find.add_argument('id', type=int)
 
-    if args.action == "scrap":
-        scrap_movie(args.url)
+        parser_list = fullaction.add_parser('list')
+        parser_list.add_argument('--export', type=str)
 
-if args.context == "import":
-    print('Mode import')
-    if args.api == 'themoviedb':
-        print('Mode themoviedb')
-        result = import_themoviedb(args.imdbid).json()
-        print(result)
-        print()
-        new_movie = parse_themoviedb(result, args.imdbid)
-        results = insert_movie(new_movie)
-        print(results)
-        print()
+        import_parser = fullaction.add_parser(
+            'import', help='Add data from csv file')
+        import_parser.add_argument('--file', help='File with data')
+
+        parser_scrapp = fullaction.add_parser('scrap')
+        parser_scrapp.add_argument('--url', type=str)
+
+        insert_parser = fullaction.add_parser(
+            'insert', help='Add data in tables')
+
+        if known_args.context == "people":
+            insert_parser.add_argument(
+                '--firstname',
+                help='Person first name',
+                required=True)
+            insert_parser.add_argument(
+                '--lastname',
+                help='Person last name',
+                required=True)
+
+        if known_args.context == "movies":
+            insert_parser.add_argument(
+                '--imdb_id', help='Movie imdb id', required=True)
+            insert_parser.add_argument(
+                '--original-title', help='Movie original title', required=True)
+            insert_parser.add_argument(
+                '--title', default=None, help='Movie title')
+            insert_parser.add_argument(
+                '--duration', default=None, help='Movie duration')
+            insert_parser.add_argument(
+                '--origin-country', default=None, help='Movie origin country')
+            insert_parser.add_argument(
+                '--release-date', default=None, help='Movie release date')
+            insert_parser.add_argument(
+                '--rating', default=None, help='Movie rating')
+
+    args = parser.parse_args()
+    # print(args)
+
+    """
+    Args example:
+    $ python app.py movies find 1
+    $ python app.py people list
+    $ python app.py people list --export "listing.csv"
+
+    $ python app.py people insert --firstname "John" --lastname "Doe"
+    $ python app.py movies insert
+    --title "Star Wars, épisode VIII : Les Derniers Jedi"--duration 152
+        --original-title "Star Wars: Episode VIII – The Last Jedi"
+        --origin-country US
+        --release-date
+
+    $ python app.py movies import --file new_movies.csv
+    $ python app.py movies scrap --url https://www.imdb.com/title/tt2527338/
+
+    $ python app.py import --api omdb --imdbid tt7016254
+    $ python app.py import --api themoviedb --imdbid tt7016254
+    """
+
+    # Utiliser arguments pour afficher des inputs
+    if args.context == "people":
+        print("Mode People")
+
+        if args.action == "find":
+            peopleId = args.id
+            person = find("people", peopleId)
+            if person is None:
+                print("Cet id n'a pas été trouvé")
+            else:
+                print_person(person)
+
+        if args.action == "list":
+            results = findall("people")
+
+            if args.export:
+                with open(args.export, 'w', newline='\n', encoding='utf-8') \
+                        as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(['id', 'firstname', 'lastname'])
+                    for person in results:
+                        writer.writerow(
+                            [person.id, person.firstname, person.lastname]
+                            )
+
+            else:
+                for person in results:
+                    print_person(person)
+
+        if args.action == "insert":
+            person = Person(firstname=args.firstname, lastname=args.lastname)
+            results = insert_people(person)
+            print(results)
+
+    if args.context == "movies":
+        print("Mode Movies")
+
+        if args.action == "find":
+            movieId = args.id
+            movie = find("movies", movieId)
+            if movie is None:
+                print("Cet id n'a pas été trouvé")
+            else:
+                print_movie(movie)
+
+        if args.action == "list":
+            results = findall("movies")
+            for movie in results:
+                print_movie(movie)
+
+            if args.export:
+                with open(args.export, 'w', newline='\n', encoding='utf-8')\
+                        as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(results[0]._fields)
+                    for movie in results:
+                        writer.writerow(movie)
+
+        if args.action == "insert":
+            new_movie = Movie(
+                title=args.title,
+                duration=args.duration,
+                original_title=args.original_title,
+                release_date=args.release_date,
+                rating=args.rating
+            )
+
+            results = insert_movie(new_movie)
+            print(results)
+
+        if args.action == "import":
+            with open(args.file, 'r', encoding='utf-8', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    if reader.line_num == 1:
+                        _ = row
+
+                    else:
+                        new_movie = Movie(
+                            title=row['title'],
+                            duration=row['duration'],
+                            original_title=row['original_title'],
+                            release_date=row['release_date'],
+                            rating=row['rating']
+                        )
+
+                        results = insert_movie(new_movie)
+                        print(results)
+
+        if args.action == "scrap":
+            scrap_movie(args.url)
+
+    if args.context == "import":
+        print('Mode import')
+        if args.api == 'themoviedb':
+            print('Mode themoviedb')
+            result = import_themoviedb(args.imdbid).json()
+            print(result)
+            print()
+            new_movie = parse_themoviedb(result, args.imdbid)
+            results = insert_movie(new_movie)
+            print(results)
+            print()
+
+
+if __name__ == "__main__":
+    main()
