@@ -75,13 +75,33 @@ else:
             '--rating', default=None, help='Movie rating')
 
 args = parser.parse_args()
-print(args)
+# print(args)
+
+"""
+Args example:
+$ python app.py movies find 1
+$ python app.py people list
+$ python app.py people list --export "listing.csv"
+
+$ python app.py people insert --firstname "John" --lastname "Doe"
+$ python app.py movies insert
+--title "Star Wars, épisode VIII : Les Derniers Jedi"--duration 152
+    --original-title "Star Wars: Episode VIII – The Last Jedi"
+    --origin-country US
+    --release-date
+
+$ python app.py movies import --file new_movies.csv
+$ python app.py movies scrap --url https://www.imdb.com/title/tt2527338/
+
+$ python app.py import --api omdb --imdbid tt7016254
+$ python app.py import --api themoviedb --imdbid tt7016254
+"""
 
 
 def connect_to_database():
     return mysql.connector.connect(
         user='predictor', password='predictor',
-        host='127.0.0.1', database='predictor')
+        host='database', database='predictor')
 
 
 def create_cursor(cnx):
@@ -175,21 +195,31 @@ def insert_people(person):
 
 
 def insert_movie(movie):
-    print(movie.__dict__)
     cnx = connect_to_database()
     cursor = create_cursor(cnx)
-    query = ("INSERT INTO `movies` (`imdb_id`,`original_title`,`title`,"
-             "`duration`,`release_date`,`rating`)"
+    query = ("INSERT INTO `movies` (`imdb_id`, `original_title`, `title`,"
+             "`duration`, `release_date`, `rating`, `is3d`,"
+             "`production_budget`, `marketing_budget`,"
+             "`synopsis`, `review`)"
              "VALUES (%(imdb_id)s, %(original_title)s, %(title)s,"
-             "%(duration)s, %(release_date)s, %(rating)s)")
+             "%(duration)s, %(release_date)s, %(rating)s, %(is3d)s,"
+             "%(production_budget)s, %(marketing_budget)s,"
+             "%(synopsis)s, %(review)s)"
+             )
     data = {
         'imdb_id': movie.imdb_id,
         'original_title': movie.original_title,
         'title': movie.title,
         'duration': movie.duration,
         'release_date': movie.release_date,
-        'rating': movie.rating
+        'rating': movie.rating,
+        'is3d': movie.is3d,
+        'production_budget': movie.production_budget,
+        'marketing_budget': movie.marketing_budget,
+        'synopsis': movie.synopsis,
+        'review': movie.review
     }
+
     cursor.execute(query, params=data)
     lastId = cursor.lastrowid
     cnx.commit()
@@ -359,8 +389,8 @@ if args.context == "import":
         print('Mode themoviedb')
         result = import_themoviedb(args.imdbid).json()
         print(result)
+        print()
         new_movie = parse_themoviedb(result, args.imdbid)
-        print_movie(new_movie)
-
         results = insert_movie(new_movie)
         print(results)
+        print()
