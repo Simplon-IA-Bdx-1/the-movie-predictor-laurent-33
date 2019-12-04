@@ -11,6 +11,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import locale
 from isodate import parse_duration
+import socket
+import time
 
 from entities.movie import Movie
 from entities.person import Person
@@ -19,9 +21,15 @@ from entities import themoviedb
 
 
 def connect_to_database():
+    host = 'database'
+    # while isOpen(host, 3306) == False:
+    #     print("En attente de la Base de Données ...")
+
+    # time.sleep(1)
+
     return mysql.connector.connect(
         user='predictor', password='predictor',
-        host='database', database='predictor')
+        host=host, database='predictor')
 
 
 def create_cursor(cnx):
@@ -103,31 +111,34 @@ def findall(table):
 
 
 def find_imdbid(imdb_id, cnx=None, cursor=None):
-    to_close = False
-    if cnx is None:
-        cnx = connect_to_database()
-        cursor = create_cursor(cnx)
-        to_close = True
+    result = None
+    if imdb_id:
+    
+        to_close = False
+        if cnx is None:
+            cnx = connect_to_database()
+            cursor = create_cursor(cnx)
+            to_close = True
 
-    query = ("SELECT * FROM `movies` WHERE `imdb_id`=%(imdbid)s")
-    data = {'imdbid': imdb_id}
-    cursor.execute(query, params=data)
-    result = cursor.fetchall()
+        query = ("SELECT * FROM `movies` WHERE `imdb_id`=%(imdbid)s")
+        data = {'imdbid': imdb_id}
+        cursor.execute(query, params=data)
+        result = cursor.fetchall()
 
-    if cursor.rowcount == 1:
-        result = Movie(
-                    imdb_id=result[0].imdb_id,
-                    original_title=result[0].original_title,
-                    title=result[0].title,
-                    duration=result[0].duration,
-                    release_date=result[0].release_date,
-                    rating=result[0].rating
-                )
-    else:
-        result = None
+        if cursor.rowcount == 1:
+            result = Movie(
+                        imdb_id=result[0].imdb_id,
+                        original_title=result[0].original_title,
+                        title=result[0].title,
+                        duration=result[0].duration,
+                        release_date=result[0].release_date,
+                        rating=result[0].rating
+                    )
+        else:
+            result = None
 
-    if to_close:
-        disconnect_to_database(cnx, cursor)
+        if to_close:
+            disconnect_to_database(cnx, cursor)
 
     return result
 
@@ -147,13 +158,12 @@ def insert_people(person):
 def insert_movie(movie):
     cnx = connect_to_database()
     cursor = create_cursor(cnx)
+    lastId = None
 
-    imdb_check = find_imdbid(movie.imdb_id, cnx, cursor)
+    if movie:
+        imdb_check = find_imdbid(movie.imdb_id, cnx, cursor)
 
-    if imdb_check is not None:
-        lastId = None
-
-    else:
+    if imdb_check is None:
 
         query = ("INSERT INTO `movies` (`imdb_id`, `original_title`, `title`,"
                  "`duration`, `release_date`, `rating`, `is3d`,"
@@ -178,9 +188,10 @@ def insert_movie(movie):
             'review': movie.review
         }
 
-        cursor.execute(query, params=data)
-        lastId = cursor.lastrowid
-        cnx.commit()
+        if movie.imdb_id:
+            cursor.execute(query, params=data)
+            lastId = cursor.lastrowid
+            cnx.commit()
 
     disconnect_to_database(cnx, cursor)
 
@@ -254,10 +265,31 @@ def scrap_movie(movie_url):
 def import_current_movies():
     movies_id_list = themoviedb.movies_in_theatre()
     ids = []
+    total = len(movies_id_list)
+    i = 0
     for movie_id in movies_id_list:
-        movie = themoviedb.collect_from__themoviedb(movie_id)
+        i += 1
+        movie = themoviedb.collect_from_themoviedb(movie_id, id_type='id')
         new_id = insert_movie(movie)
         ids += [new_id]
+        print(i, " / ", total)
+
+    return ids
+
+
+def import_movies_since(date):
+    movies_id_list = themoviedb.movies_since(date)
+    ids = []
+    total = len(movies_id_list)
+    i = 0
+    for movie_id in movies_id_list:
+        i += 1
+        movie = themoviedb.collect_from_themoviedb(movie_id, id_type='id')
+        new_id = insert_movie(movie)
+        ids += [new_id]
+        print(i, " / ", total)
+        if i % 30 == 0:
+            time.sleep(5)
 
     return ids
 
@@ -275,7 +307,15 @@ def main():
 
     if known_args.context == "import":
         parser.add_argument('--api', help='source api')
-        parser.add_argument('--imdbid', help='the id of movie')
+        #parser.add_argument('lookfor', choices=['imdbid', 'since'], help='the id of movie')
+        #parser.add_argument('imdbid')
+        lookfor = parser.add_subparsers(dest='lookfor', help='fullaction')
+
+        parser_imdbid = lookfor.add_parser('imdbid')
+        parser_imdbid.add_argument('imdbid')
+
+        parser_since = lookfor.add_parser('since')
+        parser_since.add_argument('date')
 
     else:
         fullaction = parser.add_subparsers(dest='action', help='fullaction')
@@ -323,7 +363,7 @@ def main():
                 '--rating', default=None, help='Movie rating')
 
     args = parser.parse_args()
-    # print(args)
+    print(args)
 
     """
     Args example:
@@ -343,6 +383,7 @@ def main():
 
     $ python app.py import --api omdb --imdbid tt7016254
     $ python app.py import --api themoviedb --imdbid tt7016254
+    $ python app.py import --api themoviedb --since "01/01/2018"
     """
 
     # Utiliser arguments pour afficher des inputs
@@ -440,11 +481,16 @@ def main():
     if args.context == "import":
         print('Mode import')
         if args.api == 'themoviedb':
-            print('Mode themoviedb')
-            movie = themoviedb.collect_from__themoviedb(args.imdbid)
-            results = insert_movie(new_movie)
-            print(results)
-            print()
+            if args.lookfor == 'imdbid':
+                print('Mode themoviedb imdbid')
+                movie = themoviedb.collect_from__themoviedb(args.imdbid)
+                results = insert_movie(movie)
+                print(results)
+                print()
+        
+            if args.lookfor == 'since':
+                print('Mode themoviedb since')
+                import_movies_since(args.date)
 
 
 if __name__ == "__main__":
