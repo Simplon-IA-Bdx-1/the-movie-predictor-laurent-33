@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import locale
 from isodate import parse_duration
-import socket
+# import socket
 import time
 
 from entities.movie import Movie
@@ -62,7 +62,12 @@ def find(table, id):
                     title=result[0].title,
                     duration=result[0].duration,
                     release_date=result[0].release_date,
-                    rating=result[0].rating
+                    rating=result[0].rating,
+                    production_budget=result[0].production_budget,
+                    marketing_budget=result[0].marketing_budget,
+                    is3d=result[0].is3d,
+                    synopsis=result[0].synopsis,
+                    review=result[0].review
                 )
 
         if table == "people":
@@ -93,7 +98,12 @@ def findall(table):
                 title=result.title,
                 duration=result.duration,
                 release_date=result.release_date,
-                rating=result.rating
+                rating=result.rating,
+                production_budget=result.production_budget,
+                marketing_budget=result.marketing_budget,
+                is3d=result.is3d,
+                synopsis=result.synopsis,
+                review=result.review
             )
             entity.id = result.id
             entities += [entity]
@@ -113,7 +123,7 @@ def findall(table):
 def find_imdbid(imdb_id, cnx=None, cursor=None):
     result = None
     if imdb_id:
-    
+
         to_close = False
         if cnx is None:
             cnx = connect_to_database()
@@ -132,13 +142,40 @@ def find_imdbid(imdb_id, cnx=None, cursor=None):
                         title=result[0].title,
                         duration=result[0].duration,
                         release_date=result[0].release_date,
-                        rating=result[0].rating
+                        rating=result[0].rating,
+                        production_budget=result[0].production_budget,
+                        marketing_budget=result[0].marketing_budget,
+                        is3d=result[0].is3d,
+                        synopsis=result[0].synopsis,
+                        review=result[0].review
                     )
         else:
             result = None
 
         if to_close:
             disconnect_to_database(cnx, cursor)
+
+    return result
+
+
+def find_imdbid_all(cnx=None, cursor=None):
+    result = None
+    to_close = False
+    if cnx is None:
+        cnx = connect_to_database()
+        cursor = create_cursor(cnx)
+        to_close = True
+
+    query = ("SELECT `imdb_id` FROM `movies`")
+    cursor.execute(query)
+    records = cursor.fetchall()
+
+    result = []
+    for row in records:
+        result += row
+
+    if to_close:
+        disconnect_to_database(cnx, cursor)
 
     return result
 
@@ -155,15 +192,18 @@ def insert_people(person):
     return lastId
 
 
-def insert_movie(movie):
-    cnx = connect_to_database()
-    cursor = create_cursor(cnx)
+def insert_movie(movie, imdbid_in_database=None, cnx=None, cursor=None,
+                 commit=True):
     lastId = None
+    if imdbid_in_database is None:
+        imdbid_in_database = find_imdbid_all()
 
-    if movie:
-        imdb_check = find_imdbid(movie.imdb_id, cnx, cursor)
-
-    if imdb_check is None:
+    if hasattr(movie, 'imdb_id') and movie.imdb_id not in find_imdbid_all():
+        to_close = False
+        if cnx is None:
+            cnx = connect_to_database()
+            cursor = create_cursor(cnx)
+            to_close = True
 
         query = ("INSERT INTO `movies` (`imdb_id`, `original_title`, `title`,"
                  "`duration`, `release_date`, `rating`, `is3d`,"
@@ -191,9 +231,11 @@ def insert_movie(movie):
         if movie.imdb_id:
             cursor.execute(query, params=data)
             lastId = cursor.lastrowid
-            cnx.commit()
+            if commit:
+                cnx.commit()
 
-    disconnect_to_database(cnx, cursor)
+        if to_close:
+            disconnect_to_database(cnx, cursor)
 
     return lastId
 
@@ -278,6 +320,8 @@ def import_current_movies():
 
 
 def import_movies_since(date):
+    imdbid_in_database = find_imdbid_all()
+
     movies_id_list = themoviedb.movies_since(date)
     ids = []
     total = len(movies_id_list)
@@ -285,7 +329,7 @@ def import_movies_since(date):
     for movie_id in movies_id_list:
         i += 1
         movie = themoviedb.collect_from_themoviedb(movie_id, id_type='id')
-        new_id = insert_movie(movie)
+        new_id = insert_movie(movie, imdbid_in_database)
         ids += [new_id]
         print(i, " / ", total)
         if i % 30 == 0:
@@ -307,8 +351,6 @@ def main():
 
     if known_args.context == "import":
         parser.add_argument('--api', help='source api')
-        #parser.add_argument('lookfor', choices=['imdbid', 'since'], help='the id of movie')
-        #parser.add_argument('imdbid')
         lookfor = parser.add_subparsers(dest='lookfor', help='fullaction')
 
         parser_imdbid = lookfor.add_parser('imdbid')
@@ -383,7 +425,7 @@ def main():
 
     $ python app.py import --api omdb --imdbid tt7016254
     $ python app.py import --api themoviedb --imdbid tt7016254
-    $ python app.py import --api themoviedb --since "01/01/2018"
+    $ python app.py import --api themoviedb --since 2018-01-01
     """
 
     # Utiliser arguments pour afficher des inputs
@@ -440,9 +482,21 @@ def main():
                 with open(args.export, 'w', newline='\n', encoding='utf-8')\
                         as csvfile:
                     writer = csv.writer(csvfile)
-                    writer.writerow(results[0]._fields)
+                    writer.writerow([
+                        'id', 'imdb_id', 'original_title',
+                        'title', 'rating', 'production_budget',
+                        'marketing_budget', 'duration',
+                        'release_date', 'is3d', 'synopsis',
+                        'review'
+                    ])
                     for movie in results:
-                        writer.writerow(movie)
+                        writer.writerow([
+                            movie.id, movie.imdb_id, movie.original_title,
+                            movie.title, movie.rating, movie.production_budget,
+                            movie.marketing_budget, movie.duration,
+                            movie.release_date, movie.is3d, movie.synopsis,
+                            movie.review
+                        ])
 
         if args.action == "insert":
             new_movie = Movie(
@@ -457,23 +511,35 @@ def main():
             print(results)
 
         if args.action == "import":
+            cnx = connect_to_database()
+            cursor = create_cursor(cnx)
             with open(args.file, 'r', encoding='utf-8', newline='') as csvfile:
                 reader = csv.DictReader(csvfile)
+                i = 0
                 for row in reader:
-                    if reader.line_num == 1:
-                        _ = row
+                    i += 1
+                    row = {k: v if v else None for k, v in row.items()}
+                    new_movie = Movie(
+                        imdb_id=row['imdb_id'],
+                        title=row['title'],
+                        duration=row['duration'],
+                        original_title=row['original_title'],
+                        release_date=row['release_date'],
+                        rating=row['rating'],
+                        production_budget=row['production_budget'],
+                        marketing_budget=row['marketing_budget'],
+                        is3d=row['is3d'],
+                        synopsis=row['synopsis'],
+                        review=row['review']
+                    )
 
-                    else:
-                        new_movie = Movie(
-                            title=row['title'],
-                            duration=row['duration'],
-                            original_title=row['original_title'],
-                            release_date=row['release_date'],
-                            rating=row['rating']
-                        )
+                    results = insert_movie(new_movie, cnx=cnx, cursor=cursor,
+                                           commit=False)
 
-                        results = insert_movie(new_movie)
-                        print(results)
+                    print(results)
+
+            cnx.commit()
+            disconnect_to_database(cnx, cursor)
 
         if args.action == "scrap":
             scrap_movie(args.url)
@@ -487,7 +553,7 @@ def main():
                 results = insert_movie(movie)
                 print(results)
                 print()
-        
+
             if args.lookfor == 'since':
                 print('Mode themoviedb since')
                 import_movies_since(args.date)

@@ -3,6 +3,7 @@ version: '3.0'
 services:
   app:
     build: .
+    image: python-alpine-custom
     volumes:
       - ./auth.env:/usr/src/themoviepredictor/auth.env
     networks:
@@ -30,6 +31,24 @@ services:
       - database_net
     ports:
       - 8080:80
+  
+  jupyter:
+    image: jupyter-image-custom
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+    ports:
+      - 8888:8888
+      - 6006:6006
+    volumes:
+      - ../../:/usr/src/themoviepredictor
+    env_file: 
+      - auth.env
+    command: /opt/conda/bin/jupyter notebook --notebook-dir=/usr/src/themoviepredictor --ip='0.0.0.0' --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password=''
+    networks: 
+      - database_net
 
 networks:
   database_net:

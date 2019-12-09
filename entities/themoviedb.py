@@ -1,4 +1,5 @@
 import requests
+import time
 from datetime import datetime, timedelta
 from entities.movie import Movie
 
@@ -74,26 +75,28 @@ def movies_since_by_page(date, page_number=1):
     serveur = 'https://api.themoviedb.org'
     api_version = '/3'
     ressource = '/discover/movie'
-    query = f'?primary_release_date.gte={date}&primary_release_date.lte={datedelaveille}&page={page_number}'
+    query = f'?primary_release_date.gte={date}&primary_release_date.lte=2019-01-01&page={page_number}' #{datedelaveille}
     headers_info = {
         'Content-Type': 'application/json;charset=utf-8',
         'Authorization': themoviedbaccess
     }
     url = serveur + api_version + ressource + query
     movies_list = requests.get(url, headers=headers_info).json()
-    
-    if 'status_code' in movies_list.keys():
-        print(movies_list['status_message'])
 
     if page_number == 1:
         total_pages = movies_list['total_pages']
     else:
         total_pages = None
+    
+    if 'results' not in movies_list.keys():
+        print(movies_list['status_message'])
+
     movies_list = movies_list['results']
 
     movies_id = []
     for movie in movies_list:
-        movies_id += [movie['id']]
+        if movie:
+            movies_id += [movie['id']]
 
     return movies_id, total_pages
 
@@ -112,7 +115,7 @@ def movies_in_theatre_by_page(page_number=1):
 
     if 'status_code' in movies_list.keys():
         print(movies_list['status_message'])
-        
+
     if page_number == 1:
         total_pages = movies_list['total_pages']
     else:
@@ -121,7 +124,8 @@ def movies_in_theatre_by_page(page_number=1):
 
     movies_id = []
     for movie in movies_list:
-        movies_id += [movie['id']]
+        if movie:
+            movies_id += [movie['id']]
 
     return movies_id, total_pages
 
